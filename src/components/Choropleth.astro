@@ -1,12 +1,98 @@
 ---
-
+/*
+Todo: 
+- item 1
+- item 2 
+- item 3
+*/
 ---
+
+<label for="infrastructure">Select infrastructure:</label>
+<select id="infrastructure">
+  <option value="avg_sewer_and_water">Sewer & Water</option>
+  <option value="avg_power">Power</option>
+  <option value="avg_roads_and_bridges">Roads & Bridges</option>
+  <option value="avg_medical">Medical</option>
+  <option value="avg_buildings">Buildings</option>
+  <option value="avg_shake_intensity">Shake Intensity</option>
+</select>
 
 <div id="map"></div>
 
 <script>
   import * as d3 from "d3";
   import * as Plot from "@observablehq/plot";
+  import type { RecordType } from "astro:schema";
+
+  interface ReportData {
+    location: number;
+    avg_sewer_and_water: number;
+    avg_power: number;
+    avg_roads_and_bridges: number;
+    avg_medical: number;
+    avg_buildings: number;
+    avg_shake_intensity: number;
+    // [key: string]: number; // for dynamic access by field
+  }
+
+  let geoData: GeoJSON.FeatureCollection;
+  let data: ReportData[];
+  let dataMap: Map<number, ReportData>;
+
+  async function loadData() {
+    geoData = await fetch("StHitmark.geojson").then((res) => res.json());
+    data = await d3.csv("aggregated_reports.csv", (d) => ({
+      ...d,
+      location: +d.location,
+      avg_sewer_and_water: +d.avg_sewer_and_water,
+      avg_power: +d.avg_power,
+      avg_roads_and_bridges: +d.avg_roads_and_bridges,
+      avg_medical: +d.avg_medical,
+      avg_buildings: +d.avg_buildings,
+      avg_shake_intensity: +d.avg_shake_intensity,
+    }));
+    dataMap = new Map(data.map((d) => [d.location, d]));
+  }
+
+  function drawPlot(field: keyof ReportData) {
+    const container = document.getElementById("map");
+    if (!container) {
+      console.log("No container found!");
+      return;
+    }
+
+    const plot = Plot.plot({
+      width: 800,
+      height: 500,
+      x: { ticks: "none" },
+      y: { ticks: "none" },
+      color: {
+        type: "quantize",
+        scheme: "reds",
+        label: "Value",
+        legend: true,
+        domain: [1, 10],
+        n: 9,
+      },
+      marks: [
+        Plot.geo(geoData, {
+          fill: (d) => dataMap.get(d.properties.Id)?.[field],
+          stroke: "white",
+          strokeWidth: 0.7,
+          title: (d) => {
+            const value = dataMap.get(d.properties.Id)?.[field];
+            return `${d.properties.Nbrhood}\n${
+              typeof value === "number" ? value.toFixed(2) : "No data"
+            }`;
+          },
+          tip: true,
+        }),
+      ],
+    });
+
+    container.innerHTML = "";
+    container.appendChild(plot);
+  }
 
   async function drawChoropleth() {
     const geoData = await fetch("StHitmark.geojson").then((res) => res.json());
@@ -28,11 +114,19 @@
     const plot = Plot.plot({
       width: 800,
       height: 500,
+      x: {
+        ticks: "none",
+      },
+      y: {
+        ticks: "none",
+      },
       color: {
         type: "quantize",
-        scheme: "blues",
+        scheme: "reds",
         label: "Value",
         legend: true,
+        domain: [1, 10],
+        n: 9,
       },
       marks: [
         Plot.geo(geoData, {
@@ -53,5 +147,18 @@
     container?.appendChild(plot);
   }
 
-  drawChoropleth();
+  async function init() {
+    await loadData();
+
+    const select = document.getElementById(
+      "infrastructure"
+    ) as HTMLSelectElement;
+    select.addEventListener("change", () => {
+      drawPlot(select.value as keyof ReportData);
+    });
+
+    drawPlot(select.value as keyof ReportData);
+  }
+
+  init();
 </script>
