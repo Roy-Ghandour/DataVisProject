@@ -1,0 +1,57 @@
+---
+
+---
+
+<div id="map"></div>
+
+<script>
+  import * as d3 from "d3";
+  import * as Plot from "@observablehq/plot";
+
+  async function drawChoropleth() {
+    const geoData = await fetch("StHitmark.geojson").then((res) => res.json());
+    const data = await d3.csv("aggregated_reports.csv", (d) => ({
+      ...d,
+      location: +d.location,
+      avg_sewer_and_water: +d.avg_sewer_and_water,
+      avg_power: +d.avg_power,
+      avg_roads_and_bridges: +d.avg_roads_and_bridges,
+      avg_medical: +d.avg_medical,
+      avg_buildings: +d.avg_buildings,
+      avg_shake_intensity: +d.avg_shake_intensity,
+    }));
+
+    // location -> data row
+    const dataMap = new Map(data.map((d) => [d.location, d]));
+
+    // Create plot
+    const plot = Plot.plot({
+      width: 800,
+      height: 500,
+      color: {
+        type: "quantize",
+        scheme: "blues",
+        label: "Value",
+        legend: true,
+      },
+      marks: [
+        Plot.geo(geoData, {
+          fill: (d) => dataMap.get(d.properties.Id)!.avg_sewer_and_water,
+          stroke: "white",
+          strokeWidth: 0.7,
+          title: (d) =>
+            `${d.properties.Nbrhood}\n${dataMap
+              .get(d.properties.Id)!
+              .avg_sewer_and_water.toFixed(2)}`,
+          tip: true,
+        }),
+      ],
+    });
+
+    // Add to DOM
+    const container = document.getElementById("map");
+    container?.appendChild(plot);
+  }
+
+  drawChoropleth();
+</script>
