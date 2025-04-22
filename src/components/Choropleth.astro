@@ -1,65 +1,92 @@
 ---
-/*
-Todo: 
-- item 1
-- item 2 
-- item 3
-*/
+
 ---
 
-<label for="infrastructure">Select infrastructure:</label>
-<select id="infrastructure">
-  <option value="avg_sewer_and_water">Sewer & Water</option>
-  <option value="avg_power">Power</option>
-  <option value="avg_roads_and_bridges">Roads & Bridges</option>
-  <option value="avg_medical">Medical</option>
-  <option value="avg_buildings">Buildings</option>
-  <option value="avg_shake_intensity">Shake Intensity</option>
-</select>
+<label for="time-slider">Select Time:</label>
+<div style="width: 80vw; margin-left: 10vw;">
+  <input type="range" id="time-slider" min="0" step="1" />
+</div>
+<span id="time-label-1">Loading...1</span>
+<span style="margin-left:100px;" id="time-label-2">Loading...2</span>
 
 <div id="map"></div>
 
 <script>
   import * as d3 from "d3";
   import * as Plot from "@observablehq/plot";
-  import type { RecordType } from "astro:schema";
 
-  interface ReportData {
+  interface ReportRow {
     location: number;
-    avg_sewer_and_water: number;
-    avg_power: number;
-    avg_roads_and_bridges: number;
-    avg_medical: number;
-    avg_buildings: number;
-    avg_shake_intensity: number;
-    // [key: string]: number; // for dynamic access by field
+    time: string;
+    sewer_and_water: number;
+    power: number;
+    roads_and_bridges: number;
+    medical: number;
+    buildings: number;
+    shake_intensity: number;
   }
 
   let geoData: GeoJSON.FeatureCollection;
-  let data: ReportData[];
-  let dataMap: Map<number, ReportData>;
+  let data: ReportRow[];
+  let dataMap: Map<number, ReportRow>;
 
   async function loadData() {
+    // Fetch geoJSON
     geoData = await fetch("StHitmark.geojson").then((res) => res.json());
-    data = await d3.csv("aggregated_reports.csv", (d) => ({
+
+    // Fetch CSV
+    data = await d3.csv("reports.csv", (d) => ({
       ...d,
       location: +d.location,
-      avg_sewer_and_water: +d.avg_sewer_and_water,
-      avg_power: +d.avg_power,
-      avg_roads_and_bridges: +d.avg_roads_and_bridges,
-      avg_medical: +d.avg_medical,
-      avg_buildings: +d.avg_buildings,
-      avg_shake_intensity: +d.avg_shake_intensity,
+      time: d.time,
+      sewer_and_water: +d.sewer_and_water,
+      power: +d.power,
+      roads_and_bridges: +d.roads_and_bridges,
+      medical: +d.medical,
+      buildings: +d.buildings,
+      shake_intensity: +d.shake_intensity,
     }));
+
+    // Mapping from Location -> Data Row
     dataMap = new Map(data.map((d) => [d.location, d]));
+
+    // Getting all unique timestamps from the CSV
+    // timestamps = Array.from(new Set(data.map((d) => d.time))).sort();
   }
 
-  function drawPlot(field: keyof ReportData) {
-    const container = document.getElementById("map");
-    if (!container) {
-      console.log("No container found!");
-      return;
+  function generateTimestamp(n: number): string {
+    const startDate = "2020-04-6 00:00:00";
+    const date = new Date(startDate);
+    date.setMinutes(date.getMinutes() + n * 5);
+    return date.toLocaleString("sv-SE", { timeZone: "UTC" }).replace("T", " ");
+  }
+
+  function aggregateByLocation(time: string): Map<number, ReportRow> {
+    const filtered = data.filter((d) => d.time === time);
+    const groups = d3.group(filtered, (d) => d.location);
+
+    const aggregated = new Map<number, ReportRow>();
+
+    for (const [location, records] of groups) {
+      const avg = {
+        location,
+        time: time,
+        sewer_and_water: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+        power: d3.mean(records, (d) => d.power) ?? NaN,
+        roads_and_bridges: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+        medical: d3.mean(records, (d) => d.medical) ?? NaN,
+        buildings: d3.mean(records, (d) => d.buildings) ?? NaN,
+        shake_intensity: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+      };
+      aggregated.set(location, avg);
     }
+
+    return aggregated;
+  }
+
+  function render() {
+    const container = document.getElementById("map");
+    if (!container) return;
 
     const plot = Plot.plot({
       width: 800,
@@ -68,7 +95,7 @@ Todo:
       y: { ticks: "none" },
       color: {
         type: "quantize",
-        scheme: "reds",
+        scheme: "blues",
         label: "Value",
         legend: true,
         domain: [1, 10],
@@ -76,11 +103,11 @@ Todo:
       },
       marks: [
         Plot.geo(geoData, {
-          fill: (d) => dataMap.get(d.properties.Id)?.[field],
+          fill: (d) => dataMap.get(d.properties.Id)?.sewer_and_water,
           stroke: "white",
           strokeWidth: 0.7,
           title: (d) => {
-            const value = dataMap.get(d.properties.Id)?.[field];
+            const value = dataMap.get(d.properties.Id)?.sewer_and_water;
             return `${d.properties.Nbrhood}\n${
               typeof value === "number" ? value.toFixed(2) : "No data"
             }`;
@@ -94,71 +121,87 @@ Todo:
     container.appendChild(plot);
   }
 
-  async function drawChoropleth() {
-    const geoData = await fetch("StHitmark.geojson").then((res) => res.json());
-    const data = await d3.csv("aggregated_reports.csv", (d) => ({
-      ...d,
-      location: +d.location,
-      avg_sewer_and_water: +d.avg_sewer_and_water,
-      avg_power: +d.avg_power,
-      avg_roads_and_bridges: +d.avg_roads_and_bridges,
-      avg_medical: +d.avg_medical,
-      avg_buildings: +d.avg_buildings,
-      avg_shake_intensity: +d.avg_shake_intensity,
-    }));
-
-    // location -> data row
-    const dataMap = new Map(data.map((d) => [d.location, d]));
-
-    // Create plot
-    const plot = Plot.plot({
-      width: 800,
-      height: 500,
-      x: {
-        ticks: "none",
-      },
-      y: {
-        ticks: "none",
-      },
-      color: {
-        type: "quantize",
-        scheme: "reds",
-        label: "Value",
-        legend: true,
-        domain: [1, 10],
-        n: 9,
-      },
-      marks: [
-        Plot.geo(geoData, {
-          fill: (d) => dataMap.get(d.properties.Id)!.avg_sewer_and_water,
-          stroke: "white",
-          strokeWidth: 0.7,
-          title: (d) =>
-            `${d.properties.Nbrhood}\n${dataMap
-              .get(d.properties.Id)!
-              .avg_sewer_and_water.toFixed(2)}`,
-          tip: true,
-        }),
-      ],
-    });
-
-    // Add to DOM
-    const container = document.getElementById("map");
-    container?.appendChild(plot);
-  }
-
   async function init() {
+    // await loadData();
+
+    // let slider = document.getElementById("time-slider") as HTMLInputElement;
+    // let label1 = document.getElementById("time-label-1") as HTMLBaseElement;
+    // let label2 = document.getElementById("time-label-2") as HTMLBaseElement;
+
+    // slider.value = "0";
+    // slider.max = (timestamps.length - 1).toString();
+    // label1.textContent = timestamps[0];
+    // label2.textContent = timestamps[0];
+
+    // slider.addEventListener("input", () => {
+    //   const selectedTime = timestamps[+slider.value];
+    //   label1.textContent = selectedTime;
+    //   label2.textContent = selectedTime;
+
+    //   dataMap = aggregateByLocation(selectedTime);
+    //   render();
+    // });
+
+    // render();
     await loadData();
 
-    const select = document.getElementById(
-      "infrastructure"
-    ) as HTMLSelectElement;
-    select.addEventListener("change", () => {
-      drawPlot(select.value as keyof ReportData);
+    const intervalSize = 12; // 12 * 5min = 1 hour
+    const numSteps = Math.floor(1440 / intervalSize);
+
+    const slider = document.getElementById("time-slider") as HTMLInputElement;
+    const label1 = document.getElementById("time-label-1") as HTMLElement;
+    const label2 = document.getElementById("time-label-2") as HTMLElement;
+
+    slider.value = "0";
+    slider.max = (numSteps - 1).toString();
+    slider.step = "1";
+
+    const updateMap = (step: number) => {
+      step += 1;
+      const startIdx = step * intervalSize;
+      const endIdx = startIdx + intervalSize;
+
+      const startTime = generateTimestamp(startIdx);
+      const endTime = generateTimestamp(endIdx) ?? generateTimestamp(1441 - 1); // fallback for last step
+
+      label1.textContent = startTime;
+      label2.textContent = endTime;
+
+      const filtered = data.filter((d) => {
+        const t = d.time;
+        return t >= startTime && t < endTime;
+      });
+
+      const groups = d3.group(filtered, (d) => d.location);
+      const aggregated = new Map<number, ReportRow>();
+      for (const [location, records] of groups) {
+        aggregated.set(location, {
+          location,
+          time: startTime,
+          sewer_and_water: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+          power: d3.mean(records, (d) => d.power) ?? NaN,
+          roads_and_bridges:
+            d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+          medical: d3.mean(records, (d) => d.medical) ?? NaN,
+          buildings: d3.mean(records, (d) => d.buildings) ?? NaN,
+          shake_intensity: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+        });
+      }
+
+      dataMap = aggregated;
+      render();
+    };
+
+    slider.addEventListener("input", () => {
+      const step = +slider.value;
+      updateMap(step);
     });
 
-    drawPlot(select.value as keyof ReportData);
+    // Initial render
+    updateMap(0);
   }
 
   init();
+
+  console.log(generateTimestamp(0));
 </script>
