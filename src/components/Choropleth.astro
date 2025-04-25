@@ -2,24 +2,61 @@
 
 ---
 
-<label for="time-slider">Select Time:</label>
-<div style="width: 80vw; margin-left: 10vw;">
-  <input type="range" id="time-slider" min="0" step="1" />
+<div id="visualisation">
+  <div id="map" class="chart-container"></div>
+  <div id="bar" class="chart-container"></div>
 </div>
-<span id="time-label-1">Loading...1</span>
-<span style="margin-left:100px;" id="time-label-2">Loading...2</span>
-<br />
-<label for="interval-select">Select Time Interval (hours):</label>
-<select id="interval-select">
-  <option value="1">1 Hour</option>
-  <option value="2">2 Hours</option>
-  <option value="3">3 Hours</option>
-  <option value="4">4 Hours</option>
-  <option value="5">5 Hours</option>
-  <option value="6">6 Hours</option>
-</select>
 
-<div id="map"></div>
+<div id="controls">
+  <label for="time-slider">Select Time:</label>
+  <div style="width: 80%; margin-left: 10%;">
+    <input type="range" id="time-slider" min="0" step="1" />
+  </div>
+  <span id="time-label-1">Loading...1</span>
+  <span style="margin-left:100px;" id="time-label-2">Loading...2</span>
+  <br />
+  <div style="display: flex; ">
+    <div>
+      <label for="interval-select">Select Time Interval (hours):</label>
+      <select id="interval-select">
+        <option value="1">1 Hour</option>
+        <option value="2">2 Hours</option>
+        <option value="3">3 Hours</option>
+        <option value="4">4 Hours</option>
+        <option value="5">5 Hours</option>
+        <option value="6">6 Hours</option>
+      </select>
+    </div>
+    <div>
+      <label for="infrastructure-select">Select Infrastructure Type:</label>
+      <select id="infrastructure-select">
+        <option value="all">All</option>
+        <option value="sewer_and_water">Sewer and Water</option>
+        <option value="power">Power</option>
+        <option value="roads_and_bridges">Roads and Bridges</option>
+        <option value="medical">Medical</option>
+        <option value="buildings">Buildings</option>
+        <option value="shake_intensity">Shake Intensity</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<style>
+  #visualisation {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* #visualisation #bar {
+    grid-column: span 2;
+  } */
+
+  .chart-container * {
+    width: 100%;
+    height: 100%;
+  }
+</style>
 
 <script>
   import * as d3 from "d3";
@@ -44,6 +81,7 @@
     medical: number;
     buildings: number;
     shake_intensity: number;
+    all: number;
   }
 
   let geoData: GeoJSON.FeatureCollection;
@@ -98,18 +136,40 @@
       filtered.push(...rawDataBuckets[tsSelected + i]);
     }
 
+    // Temp for testing
+    // filtered = rawData;
+
     // Aggregate the Filtered Data
     const grouped = d3.group(filtered, (d) => d.location);
     const aggregated = new Map<number, AggregatedReportRow>();
     for (const [location, records] of grouped) {
+      const sewer_and_water = d3.mean(records, (d) => d.sewer_and_water) ?? NaN;
+      const power = d3.mean(records, (d) => d.power) ?? NaN;
+      const roads_and_bridges =
+        d3.mean(records, (d) => d.roads_and_bridges) ?? NaN;
+      const medical = d3.mean(records, (d) => d.medical) ?? NaN;
+      const buildings = d3.mean(records, (d) => d.buildings) ?? NaN;
+      const shake_intensity = d3.mean(records, (d) => d.shake_intensity) ?? NaN;
+
+      // Compute average over only valid fields (excluding shake_intensity)
+      const values = [
+        sewer_and_water,
+        power,
+        roads_and_bridges,
+        medical,
+        buildings,
+      ].filter((v) => !isNaN(v));
+      const all = values.length > 0 ? (d3.mean(values) ?? NaN) : NaN;
+
       aggregated.set(location, {
         location,
-        sewer_and_water: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
-        power: d3.mean(records, (d) => d.power) ?? NaN,
-        roads_and_bridges: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
-        medical: d3.mean(records, (d) => d.medical) ?? NaN,
-        buildings: d3.mean(records, (d) => d.buildings) ?? NaN,
-        shake_intensity: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+        sewer_and_water,
+        power,
+        roads_and_bridges,
+        medical,
+        buildings,
+        shake_intensity,
+        all,
       });
     }
 
@@ -117,14 +177,126 @@
     render();
   }
 
-  // Used to render the choropleth map
+  // Used to render charts
   function render() {
+    choropleth();
+    bar();
+  }
+
+  // Used to render the bar chart
+  function bar() {
+    const container = document.getElementById("bar");
+    if (!container) return;
+
+    const locations = [
+      "",
+      "Palace Hills",
+      "Northwest",
+      "Old Town",
+      "Safe Town",
+      "Southwest",
+      "Downtown",
+      "Wilson Forest",
+      "Scenic Vista",
+      "Broadview",
+      "Chapparal",
+      "Terrapin Springs",
+      "Pepper Mill",
+      "Cheddarford",
+      "Easton",
+      "Weston",
+      "Southton",
+      "Oak Willow",
+      "East Parton",
+      "West Parton",
+    ];
+
+    const infrastructure = {
+      all: "Total Damage",
+      sewer_and_water: "Water and Sewage Infrastructure",
+      power: "Power Infrastructure",
+      roads_and_bridges: "Roads and Bridges",
+      medical: "Medical Infrastructure",
+      buildings: "Buildings",
+    };
+
+    // const data = Array.from(processedData.values())
+    //   .map((d) => ({
+    //     location: locations[d.location],
+    //     value: d[selectedInfrastructure as keyof AggregatedReportRow] as number,
+    //   }))
+    //   // .filter((d) => !isNaN(d.value))
+    //   .sort((a, b) => d3.descending(a.value, b.value));
+
+    const data = locations.slice(1).map((name, idx) => {
+      const d = processedData.get(idx + 1); // +1 because locations[0] is empty
+      const value =
+        d?.[selectedInfrastructure as keyof AggregatedReportRow] ?? NaN;
+
+      return {
+        location: name,
+        value: isNaN(value) ? 0 : value,
+      };
+    });
+
+    const plot = Plot.plot({
+      // width: 800,
+      width: 500,
+      // height: 400,
+      height: 400,
+      marginLeft: 120,
+      color: {
+        type: "quantize",
+        scheme: "blues",
+        label: "Value",
+        domain: [1, 10],
+        n: 9,
+      },
+      x: {
+        label: `Aggregate (mean) Reported damage to ${infrastructure[selectedInfrastructure as keyof typeof infrastructure]}`,
+        domain: [0, 10],
+      },
+      y: {
+        label: "Neighbourhood",
+      },
+      marks: [
+        Plot.barX(data, {
+          x: "value",
+          y: "location",
+          sort: { y: "-x" },
+          // fill: "value",
+          fill: (d) => (isNaN(d.value) ? "#ccc" : d.value), // makes tip appear for NaN values
+          // title: (d) => `Reports: ${d.report_count}`,
+          tip: true,
+        }),
+        Plot.text(data, {
+          x: "value",
+          y: "location",
+          // text: (d) => d.value.toFixed(1),
+          text: (d) => (isNaN(d.value) ? "N/A" : d.value.toFixed(1)),
+          dx: 4,
+          dy: 0.5,
+          textAnchor: "start",
+          stroke: "white",
+          // fill: "value",
+          fill: "black",
+          fontSize: 12,
+        }),
+      ],
+    });
+
+    container.innerHTML = "";
+    container.appendChild(plot);
+  }
+
+  // Used to render the choropleth map
+  function choropleth() {
     const container = document.getElementById("map");
     if (!container) return;
 
     const plot = Plot.plot({
-      width: 800,
-      height: 500,
+      width: 500,
+      height: 350,
       x: { ticks: "none" },
       y: { ticks: "none" },
       color: {
@@ -137,15 +309,13 @@
       },
       marks: [
         Plot.geo(geoData, {
-          fill: (d) => processedData.get(d.properties.Id)?.sewer_and_water,
+          fill: (d) =>
+            processedData.get(d.properties.Id)?.[
+              selectedInfrastructure as keyof AggregatedReportRow
+            ],
           stroke: "white",
           strokeWidth: 0.7,
-          title: (d) => {
-            const value = processedData.get(d.properties.Id)?.sewer_and_water;
-            return `${d.properties.Nbrhood}\n${
-              typeof value === "number" ? value.toFixed(2) : "No data"
-            }`;
-          },
+          title: (d) => `${d.properties.Nbrhood}: ${d.properties.Id}`,
           tip: true,
         }),
       ],
@@ -195,6 +365,18 @@
   ) as HTMLSelectElement;
 
   intervalSelect.addEventListener("change", tsUpdate);
+
+  // Infrasturcture select
+  const infraSelect = document.getElementById(
+    "infrastructure-select"
+  ) as HTMLSelectElement;
+
+  let selectedInfrastructure = "all";
+
+  infraSelect.addEventListener("change", () => {
+    selectedInfrastructure = infraSelect.value;
+    render();
+  });
 
   init();
 </script>
