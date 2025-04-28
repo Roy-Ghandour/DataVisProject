@@ -36,7 +36,6 @@
         <option value="roads_and_bridges">Roads and Bridges</option>
         <option value="medical">Medical</option>
         <option value="buildings">Buildings</option>
-        <option value="shake_intensity">Shake Intensity</option>
       </select>
     </div>
   </div>
@@ -48,13 +47,14 @@
     grid-template-columns: 1fr 1fr;
   }
 
-  /* #visualisation #bar {
-    grid-column: span 2;
-  } */
+  #map {
+    position: relative;
+  }
 
-  .chart-container * {
-    width: 100%;
-    height: 100%;
+  .legend {
+    position: absolute;
+    top: 200px;
+    left: 30px;
   }
 </style>
 
@@ -75,20 +75,19 @@
 
   interface AggregatedReportRow {
     location: number;
-    sewer_and_water: number;
-    power: number;
-    roads_and_bridges: number;
-    medical: number;
-    buildings: number;
+    damage: number;
+    count: number;
     shake_intensity: number;
-    all: number;
   }
 
   let geoData: GeoJSON.FeatureCollection;
   let rawData: ReportRow[];
   let rawDataBuckets: ReportRow[][];
   let processedData: Map<number, AggregatedReportRow>;
+  let damageThresholds: number[];
+  let countThresholds: number[];
 
+  // Runs once on load
   async function init() {
     // Fetch GeoJSON Data for Choropleth Map
     geoData = await fetch("StHitmark.geojson").then((res) => res.json());
@@ -130,48 +129,65 @@
   function update() {
     // Filter the raw Data
     let filtered: ReportRow[] = [];
-    // we are selecting things that are out of bounds need a fallback
     for (let i = 0; i < tsInterval; i++) {
       if (tsSelected + i > tsMaxSteps) break;
       filtered.push(...rawDataBuckets[tsSelected + i]);
     }
 
     // Temp for testing
-    // filtered = rawData;
+    filtered = rawData;
 
     // Aggregate the Filtered Data
     const grouped = d3.group(filtered, (d) => d.location);
     const aggregated = new Map<number, AggregatedReportRow>();
     for (const [location, records] of grouped) {
-      const sewer_and_water = d3.mean(records, (d) => d.sewer_and_water) ?? NaN;
-      const power = d3.mean(records, (d) => d.power) ?? NaN;
-      const roads_and_bridges =
-        d3.mean(records, (d) => d.roads_and_bridges) ?? NaN;
-      const medical = d3.mean(records, (d) => d.medical) ?? NaN;
-      const buildings = d3.mean(records, (d) => d.buildings) ?? NaN;
-      const shake_intensity = d3.mean(records, (d) => d.shake_intensity) ?? NaN;
+      let damage: number;
+      let count: number;
 
-      // Compute average over only valid fields (excluding shake_intensity)
-      const values = [
-        sewer_and_water,
-        power,
-        roads_and_bridges,
-        medical,
-        buildings,
-      ].filter((v) => !isNaN(v));
-      const all = values.length > 0 ? (d3.mean(values) ?? NaN) : NaN;
+      if (selectedInfrastructure === "all") {
+        const values = [
+          d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+          d3.mean(records, (d) => d.power) ?? NaN,
+          d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+          d3.mean(records, (d) => d.medical) ?? NaN,
+          d3.mean(records, (d) => d.buildings) ?? NaN,
+        ].filter((v) => !isNaN(v));
+        damage = values.length > 0 ? (d3.mean(values) ?? NaN) : NaN;
+        count = records.length;
+      } else {
+        damage =
+          d3.mean(
+            records,
+            (d) => d[selectedInfrastructure as InfrastructureKey]
+          ) ?? NaN;
+        count = records.filter(
+          (d) => !isNaN(d[selectedInfrastructure as InfrastructureKey])
+        ).length;
+      }
+
+      const shake_intensity = d3.mean(records, (d) => d.shake_intensity) ?? NaN;
 
       aggregated.set(location, {
         location,
-        sewer_and_water,
-        power,
-        roads_and_bridges,
-        medical,
-        buildings,
+        damage,
+        count,
         shake_intensity,
-        all,
       });
     }
+
+    damageThresholds = d3
+      .scaleQuantile(
+        Array.from(aggregated.values()).map((d) => d.damage),
+        [0, 1, 2]
+      )
+      .quantiles();
+
+    countThresholds = d3
+      .scaleQuantile(
+        Array.from(aggregated.values()).map((d) => d.count),
+        [0, 1, 2]
+      )
+      .quantiles();
 
     processedData = aggregated;
     render();
@@ -220,29 +236,17 @@
       buildings: "Buildings",
     };
 
-    // const data = Array.from(processedData.values())
-    //   .map((d) => ({
-    //     location: locations[d.location],
-    //     value: d[selectedInfrastructure as keyof AggregatedReportRow] as number,
-    //   }))
-    //   // .filter((d) => !isNaN(d.value))
-    //   .sort((a, b) => d3.descending(a.value, b.value));
-
     const data = locations.slice(1).map((name, idx) => {
       const d = processedData.get(idx + 1); // +1 because locations[0] is empty
-      const value =
-        d?.[selectedInfrastructure as keyof AggregatedReportRow] ?? NaN;
 
       return {
         location: name,
-        value: isNaN(value) ? 0 : value,
+        value: d?.damage,
       };
     });
 
     const plot = Plot.plot({
-      // width: 800,
       width: 500,
-      // height: 400,
       height: 400,
       marginLeft: 120,
       color: {
@@ -269,19 +273,19 @@
           // title: (d) => `Reports: ${d.report_count}`,
           tip: true,
         }),
-        Plot.text(data, {
-          x: "value",
-          y: "location",
-          // text: (d) => d.value.toFixed(1),
-          text: (d) => (isNaN(d.value) ? "N/A" : d.value.toFixed(1)),
-          dx: 4,
-          dy: 0.5,
-          textAnchor: "start",
-          stroke: "white",
-          // fill: "value",
-          fill: "black",
-          fontSize: 12,
-        }),
+        // Plot.text(data, {
+        //   x: "value",
+        //   y: "location",
+        //   // text: (d) => d.value.toFixed(1),
+        //   text: (d) => (isNaN(d.value) ? "N/A" : d.value.toFixed(1)),
+        //   dx: 4,
+        //   dy: 0.5,
+        //   textAnchor: "start",
+        //   stroke: "white",
+        //   // fill: "value",
+        //   fill: "black",
+        //   fontSize: 12,
+        // }),
       ],
     });
 
@@ -294,35 +298,187 @@
     const container = document.getElementById("map");
     if (!container) return;
 
-    const plot = Plot.plot({
-      width: 500,
-      height: 350,
-      x: { ticks: "none" },
-      y: { ticks: "none" },
+    // Old Plot
+    // const plot = Plot.plot({
+    //   width: 500,
+    //   height: 350,
+    //   x: { ticks: "none" },
+    //   y: { ticks: "none" },
+    //   color: {
+    //     type: "quantize",
+    //     scheme: "blues",
+    //     label: "Value",
+    //     legend: true,
+    //     domain: [1, 10],
+    //     n: 9,
+    //   },
+    //   marks: [
+    //     Plot.geo(geoData, {
+    //       fill: (d) =>
+    //         processedData.get(d.properties.Id)?.[
+    //           selectedInfrastructure as keyof AggregatedReportRow
+    //         ],
+    //       stroke: "white",
+    //       strokeWidth: 0.7,
+    //       title: (d) =>
+    //         `${d.properties.Nbrhood}: ${processedData.get(d.properties.Id)![selectedInfrastructure.concat("_count") as keyof AggregatedReportRow]}`,
+    //       // title: (d) =>
+    //       //   `${d.properties.Nbrhood}: ${processedData.get(d.properties.Id)?.buildings_count}`,
+    //       tip: true,
+    //     }),
+    //   ],
+    // });
+
+    const scheme = [
+      "#e8e8e8",
+      "#ace4e4",
+      "#5ac8c8",
+      "#dfb0d6",
+      "#a5add3",
+      "#5698b9",
+      "#be64ac",
+      "#8c62aa",
+      "#3b4994",
+    ];
+
+    // const color = legend.scale("color");
+
+    const labels = [" (Low)", " (Med)", "(High)"];
+
+    const legend = Plot.plot({
       color: {
-        type: "quantize",
-        scheme: "blues",
-        label: "Value",
-        legend: true,
-        domain: [1, 10],
-        n: 9,
+        range: scheme,
+        transform: ([a, b]) => 3 * a + b,
+        unknown: "#ccc", // See Valdez-Cordova, Alaska
       },
+      axis: null,
+      margin: 0,
+      inset: 18,
+      width: 106,
+      height: 106,
+      style: "overflow: visible; top: 60%; left: 10%;",
       marks: [
-        Plot.geo(geoData, {
-          fill: (d) =>
-            processedData.get(d.properties.Id)?.[
-              selectedInfrastructure as keyof AggregatedReportRow
-            ],
-          stroke: "white",
-          strokeWidth: 0.7,
-          title: (d) => `${d.properties.Nbrhood}: ${d.properties.Id}`,
+        Plot.dot(d3.cross([0, 1, 2], [0, 1, 2]), {
+          x: ([a, b]) => b - a,
+          y: ([a, b]) => b + a,
+          symbol: "square",
+          rotate: 45,
+          r: 14,
+          fill: (d) => d,
+          title: ([a, b]) => `Diabetes${labels[a]}\nObesity${labels[b]}`,
           tip: true,
+        }),
+        Plot.text(["Damage →"], {
+          frameAnchor: "right",
+          fontWeight: "bold",
+          rotate: -45,
+          dy: 10,
+        }),
+        Plot.text(["← Reports"], {
+          frameAnchor: "left",
+          fontWeight: "bold",
+          rotate: 45,
+          dy: 10,
         }),
       ],
     });
 
+    const bivariateClass = (value: AggregatedReportRow) => {
+      const { count, damage } = value;
+
+      if (isNaN(count) || isNaN(damage)) return [null, null];
+
+      const countClass =
+        +(count >= countThresholds[0]) + +(count >= countThresholds[1]);
+      const damageClass =
+        +(damage >= damageThresholds[0]) + +(damage >= damageThresholds[1]);
+
+      return [countClass, damageClass]; // e.g., [1,2] => row 1, col 2
+    };
+
+    const centroids = geoData.features.map((d) => {
+      const [x, y] = d3.geoCentroid(d); // Returns [longitude, latitude]
+      const value = processedData.get(d.properties?.Id)?.shake_intensity ?? NaN;
+      return { x, y, shake_intensity: value };
+    });
+
+    const infrastructure = {
+      all: "Total",
+      sewer_and_water: "Water",
+      power: "Power",
+      roads_and_bridges: "Road",
+      medical: "Medical",
+      buildings: "Buildings",
+      shake_intensity: "",
+    };
+
+    const plot = Plot.plot({
+      width: 500,
+      height: 400,
+      // color,
+      color: {
+        range: scheme,
+        transform: ([a, b]) => 3 * a + b,
+        unknown: "#ccc", // See Valdez-Cordova, Alaska
+      },
+      x: { ticks: "none" },
+      y: { ticks: "none" },
+      // r: { transform: (r) => r },
+      r: {
+        transform: (r) => Math.pow(r, 2),
+        domain: [0, 10],
+        range: [0, 10],
+      },
+      marks: [
+        Plot.geo(
+          geoData,
+          Plot.centroid({
+            stroke: "white",
+            strokeWidth: 0.5,
+            strokeOpacity: 0.8,
+            fill: (d) => bivariateClass(processedData.get(d.properties.Id)!),
+            title: (d) => {
+              const name = d.properties.Nbrhood;
+              const value = processedData.get(d.properties.Id);
+
+              if (!value || (isNaN(value.damage) && isNaN(value.count)))
+                return `${name}\nno data`;
+
+              const [reports, damage] = bivariateClass(value);
+              return (
+                `${name}\n` +
+                `${infrastructure[selectedInfrastructure]} Damage: ${
+                  isNaN(value.damage) ? "No Data" : value.damage.toFixed(1)
+                }/10 ${damage != null ? labels[damage] : " unknown"}\n` +
+                `# of Reports: ${
+                  isNaN(value.count) ? "No Data" : value.count
+                } ${reports != null ? labels[reports] : " (unknown)"}\n` +
+                `Shake Intensity: ${value.shake_intensity.toFixed(1)}/10`
+              );
+            },
+            tip: true,
+          })
+        ),
+        Plot.dot(centroids, {
+          x: {
+            label: "",
+            value: "x",
+          },
+          y: "y",
+          r: "shake_intensity",
+          fill: "white",
+          stroke: "black",
+          strokeWidth: 0.5,
+          opacity: 0.6,
+        }),
+      ],
+      style: "overflow: visible;",
+    });
+
     container.innerHTML = "";
     container.appendChild(plot);
+    legend.style.position = "absolute";
+    container.appendChild(legend);
   }
 
   // Time Slider
@@ -371,11 +527,14 @@
     "infrastructure-select"
   ) as HTMLSelectElement;
 
-  let selectedInfrastructure = "all";
+  // Setting the Default
+  type InfrastructureKey = Exclude<keyof ReportRow, "location" | "time">;
+  type SelectedKey = InfrastructureKey | "all";
+  let selectedInfrastructure: SelectedKey = "all";
 
   infraSelect.addEventListener("change", () => {
-    selectedInfrastructure = infraSelect.value;
-    render();
+    selectedInfrastructure = infraSelect.value as SelectedKey;
+    update();
   });
 
   init();
