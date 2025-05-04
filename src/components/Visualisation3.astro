@@ -4,7 +4,6 @@
 
 <div id="visualisation">
   <div id="heatmap"></div>
-  <!-- <div id="bar" class="chart-container"></div> -->
 </div>
 
 <div id="controls">
@@ -18,6 +17,8 @@
     <option value="buildings">Buildings</option>
   </select>
 </div>
+
+<div id="linegraph"></div>
 
 <style>
   /* #visualisation {
@@ -155,21 +156,22 @@
             (d) => !isNaN(d[selectedInfrastructure as InfrastructureKey])
           ).length;
         }
-
-        aggregated.push({
-          location,
-          time: new Date(
-            new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
-          ),
-          damage,
-          count,
-        });
+        if (count > 0) {
+          aggregated.push({
+            location,
+            time: new Date(
+              new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
+            ),
+            damage,
+            count,
+          });
+        }
       }
     }
 
     processedData = aggregated;
-    console.log(aggregated);
     heatmap();
+    linegraph();
   }
 
   // Used to render the heatmap
@@ -178,10 +180,9 @@
     if (!container) return;
 
     const plot = Plot.plot({
-      width: 1000,
+      width: 1200,
       height: 500,
       marginLeft: 100,
-      // padding: 0,
       round: false,
       label: null,
       x: {
@@ -194,31 +195,189 @@
       color: {
         scheme: "purd",
         legend: true,
-        unknown: "#ccc",
-        // type: "sqrt",
         label: `Mean ${infrastructure[selectedInfrastructure]} Damage`,
+        unknown: "#0f0",
+        domain: [0, 11],
+        ticks: [2, 4, 6, 8, 10],
       },
       marks: [
         Plot.barX(processedData, {
           x: "time",
           y: "location",
+          fill: "damage",
           interval: d3.utcHour,
           inset: 0.5,
-          fill: (d) => d.damage,
           tip: true,
           title: (d) => {
+            const name = locations[d.location - 1];
             if (!d || (isNaN(d.damage) && isNaN(d.count)))
-              return `${locations[d.location]}\nno data`;
+              return `${name}\nno data`;
 
             return (
-              `${locations[d.location]}\n` +
-              `${d3.utcFormat("%Y-%m-%d %H:%M")(d.time)}\n` +
+              `${name}\n` +
+              `${d3.utcFormat("%Y-%m-%d %H:%M")(new Date(d.time.getTime() + 60 * 60 * 1000))}\n` +
               `Mean ${infrastructure[selectedInfrastructure]} Damage: ${
                 isNaN(d.damage) ? "No Data" : d.damage.toFixed(1)
               }/10\n` +
               `# of Reports: ${isNaN(d.count) ? "No Data" : d.count}`
             );
           },
+        }),
+      ],
+    });
+
+    container.innerHTML = "";
+    container.appendChild(plot);
+  }
+
+  // Used to render the line graphs
+  function linegraph() {
+    const container = document.getElementById("linegraph");
+    if (!container) return;
+
+    const aggregated = [];
+
+    const fields = [
+      { key: "sewer_and_water", label: "Sewer and Water" },
+      { key: "power", label: "Power" },
+      { key: "roads_and_bridges", label: "Roads and Bridges" },
+      { key: "medical", label: "Medical" },
+      { key: "buildings", label: "Building" },
+      { key: "shake_intensity", label: "Shake Intensity" },
+    ];
+
+    const data = d3.group(rawData, (d) => d.time);
+    for (const [time, records] of data) {
+      for (const { key, label } of fields) {
+        const values = records
+          .map((d) => d[key as keyof ReportRow])
+          .filter((v) => !isNaN(v));
+        const mean = d3.mean(values) ?? NaN;
+        const stdev = d3.deviation(values) ?? 0;
+
+        aggregated.push({
+          time,
+          damage: mean,
+          stdev,
+          // lower: mean - stdev,
+          // upper: mean + stdev,
+          industry: label,
+        });
+      }
+      // aggregated.push(
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+      //     stdev:
+      //       d3.deviation(records.filter((d) => !isNaN(d.sewer_and_water))) ?? 0,
+      //     industry: "Sewer and Water",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.power) ?? NaN,
+      //     industry: "Power",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+      //     industry: "Roads and Bridges",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.medical) ?? NaN,
+      //     industry: "Medical",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.buildings) ?? NaN,
+      //     industry: "Building",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+      //     industry: "Shake Intensity",
+      //   }
+      // );
+    }
+
+    // for (let i = 0; i < rawDataBuckets.length; i++) {
+    //   const records = rawDataBuckets[i];
+    //   const time = new Date(
+    //     new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
+    //   );
+    //   aggregated.push(
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+    //       industry: "sewer_and_water",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.power) ?? NaN,
+    //       industry: "power",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+    //       industry: "roads_and_bridges",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.medical) ?? NaN,
+    //       industry: "medical",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.buildings) ?? NaN,
+    //       industry: "buildings",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+    //       industry: "shake_intensity",
+    //     }
+    //   );
+    // }
+
+    const plot = Plot.plot({
+      width: 1200,
+      marginLeft: 100,
+      marginBottom: 200,
+      x: {
+        type: "utc",
+        axis: "top",
+      },
+      y: {
+        axis: "right",
+        // ticks: [2, 4, 6, 8, 10],
+      },
+      fy: {
+        padding: 0.2,
+      },
+      label: null,
+      marks: [
+        Plot.areaY(aggregated, {
+          x: "time",
+          y1: (d) => d.damage - d.stdev,
+          y2: (d) => d.damage + d.stdev,
+          fy: "industry",
+          fill: "#f00",
+          fillOpacity: 0.2,
+        }),
+        Plot.lineY(aggregated, {
+          x: "time",
+          y: "damage",
+          fy: "industry",
+          tip: true,
+          title: (d) =>
+            `${d.industry}\n` +
+            `${d3.utcFormat("%Y-%m-%d %H:%M")(new Date(d.time.getTime() + 60 * 60 * 1000))}\n` +
+            `Damage: ${d.damage.toFixed(1)} ±${d.stdev.toFixed(1)}`,
+        }),
+        Plot.frame(),
+        Plot.crosshairX(aggregated, {
+          x: "time",
+          // color: "red",
         }),
       ],
     });
