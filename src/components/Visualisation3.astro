@@ -4,7 +4,6 @@
 
 <div id="visualisation">
   <div id="heatmap"></div>
-  <!-- <div id="bar" class="chart-container"></div> -->
 </div>
 
 <div id="controls">
@@ -18,6 +17,8 @@
     <option value="buildings">Buildings</option>
   </select>
 </div>
+
+<div id="linegraph"></div>
 
 <style>
   /* #visualisation {
@@ -52,14 +53,45 @@
   }
 
   interface AggregatedReportRow {
+    time: Date;
     location: number;
     damage: number;
     count: number;
-    shake_intensity: number;
   }
 
   let rawData: ReportRow[];
-  let processedData: Map<number, AggregatedReportRow>;
+  let rawDataBuckets: ReportRow[][];
+  let processedData: AggregatedReportRow[];
+
+  const locations = [
+    "Palace Hills",
+    "Northwest",
+    "Old Town",
+    "Safe Town",
+    "Southwest",
+    "Downtown",
+    "Wilson Forest",
+    "Scenic Vista",
+    "Broadview",
+    "Chapparal",
+    "Terrapin Springs",
+    "Pepper Mill",
+    "Cheddarford",
+    "Easton",
+    "Weston",
+    "Southton",
+    "Oak Willow",
+    "East Parton",
+    "West Parton",
+  ];
+  const infrastructure = {
+    all: "Total",
+    sewer_and_water: "Water",
+    power: "Power",
+    roads_and_bridges: "Road",
+    medical: "Medical",
+    buildings: "Building",
+  };
 
   // Runs once on load
   async function init() {
@@ -79,6 +111,16 @@
     // Sort by Date
     rawData.sort((a, b) => a.time.getTime() - b.time.getTime());
 
+    // Sort Raw Data into 60 minute buckets
+    rawDataBuckets = Array.from({ length: 121 }, () => []);
+    let startTime = new Date("2020-04-6 00:00:00").getTime();
+    for (const row of rawData) {
+      const elapsedMs = row.time.getTime() - startTime;
+      const bucketIndex = Math.floor(elapsedMs / (60 * 60 * 1000)); // 60 min * 60 sec * 1000 ms
+
+      rawDataBuckets[bucketIndex].push(row);
+    }
+
     // Initial update
     update();
   }
@@ -86,89 +128,100 @@
   // Used to update the data frame and rerender the charts (runs everytime a change is made)
   function update() {
     // Aggregate the Raw Data
-    const grouped = d3.group(rawData, (d) => d.location);
-    const aggregated = new Map<number, AggregatedReportRow>();
-    for (const [location, records] of grouped) {
-      let damage: number;
-      let count: number;
+    const aggregated: AggregatedReportRow[] = [];
 
-      if (selectedInfrastructure === "all") {
-        const values = [
-          d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
-          d3.mean(records, (d) => d.power) ?? NaN,
-          d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
-          d3.mean(records, (d) => d.medical) ?? NaN,
-          d3.mean(records, (d) => d.buildings) ?? NaN,
-        ].filter((v) => !isNaN(v));
-        // damage = values.length > 0 ? (d3.mean(values) ?? NaN) : NaN;
-        damage = d3.mean(values) ?? NaN;
-        count = records.length;
-      } else {
-        damage =
-          d3.mean(
-            records,
-            (d) => d[selectedInfrastructure as InfrastructureKey]
-          ) ?? NaN;
-        count = records.filter(
-          (d) => !isNaN(d[selectedInfrastructure as InfrastructureKey])
-        ).length;
+    for (let i = 0; i < rawDataBuckets.length; i++) {
+      const grouped = d3.group(rawDataBuckets[i], (d) => d.location);
+      for (const [location, records] of grouped) {
+        let damage: number;
+        let count: number;
+
+        if (selectedInfrastructure === "all") {
+          const values = [
+            d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+            d3.mean(records, (d) => d.power) ?? NaN,
+            d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+            d3.mean(records, (d) => d.medical) ?? NaN,
+            d3.mean(records, (d) => d.buildings) ?? NaN,
+          ].filter((v) => !isNaN(v));
+          damage = d3.mean(values) ?? NaN;
+          count = records.length;
+        } else {
+          damage =
+            d3.mean(
+              records,
+              (d) => d[selectedInfrastructure as InfrastructureKey]
+            ) ?? NaN;
+          count = records.filter(
+            (d) => !isNaN(d[selectedInfrastructure as InfrastructureKey])
+          ).length;
+        }
+        if (count > 0) {
+          aggregated.push({
+            location,
+            time: new Date(
+              new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
+            ),
+            damage,
+            count,
+          });
+        }
       }
-
-      const shake_intensity = d3.mean(records, (d) => d.shake_intensity) ?? NaN;
-
-      aggregated.set(location, {
-        location,
-        damage,
-        count,
-        shake_intensity,
-      });
     }
 
     processedData = aggregated;
     heatmap();
+    linegraph();
   }
 
   // Used to render the heatmap
   function heatmap() {
-    const container = document.getElementById("bar");
+    const container = document.getElementById("heatmap");
     if (!container) return;
 
     const plot = Plot.plot({
-      // width,
-      // height: 930,
-      // marginBottom: 30,
-      // padding: 0,
-      // round: false,
-      // label: null,
-      x: { axis: "top" },
+      width: 1200,
+      height: 500,
+      marginLeft: 100,
+      round: false,
+      label: null,
+      x: {
+        type: "utc",
+        axis: "top",
+      },
+      y: {
+        tickFormat: (d) => locations[d - 1],
+      },
       color: {
         scheme: "purd",
         legend: true,
-        type: "sqrt",
-        label: "Cases per 100,000 people",
+        label: `Mean ${infrastructure[selectedInfrastructure]} Damage`,
+        unknown: "#0f0",
+        domain: [0, 11],
+        ticks: [2, 4, 6, 8, 10],
       },
       marks: [
-        Plot.barX(
-          vaccines.filter((d) => d.disease === disease),
-          {
-            x: "date",
-            y: "state",
-            interval: "year",
-            inset: 0.5,
-            fill: "cases",
-            // title: "cases"
-            tip: true,
-          }
-        ),
-        Plot.ruleX([introductions.find((d) => d.disease === disease)], {
-          x: "date",
-        }),
-        Plot.text([introductions.find((d) => d.disease === disease)], {
-          x: "date",
-          dy: 4,
-          lineAnchor: "top",
-          frameAnchor: "bottom",
-          text: (d) => `${d.date.getUTCFullYear()}\nVaccine introduced`,
+        Plot.barX(processedData, {
+          x: "time",
+          y: "location",
+          fill: "damage",
+          interval: d3.utcHour,
+          inset: 0.5,
+          tip: true,
+          title: (d) => {
+            const name = locations[d.location - 1];
+            if (!d || (isNaN(d.damage) && isNaN(d.count)))
+              return `${name}\nno data`;
+
+            return (
+              `${name}\n` +
+              `${d3.utcFormat("%Y-%m-%d %H:%M")(new Date(d.time.getTime() + 60 * 60 * 1000))}\n` +
+              `Mean ${infrastructure[selectedInfrastructure]} Damage: ${
+                isNaN(d.damage) ? "No Data" : d.damage.toFixed(1)
+              }/10\n` +
+              `# of Reports: ${isNaN(d.count) ? "No Data" : d.count}`
+            );
+          },
         }),
       ],
     });
@@ -177,94 +230,161 @@
     container.appendChild(plot);
   }
 
-  // // Used to render the bar chart
-  // function bar() {
-  //   const container = document.getElementById("bar");
-  //   if (!container) return;
+  // Used to render the line graphs
+  function linegraph() {
+    const container = document.getElementById("linegraph");
+    if (!container) return;
 
-  //   const locations = [
-  //     "Palace Hills",
-  //     "Northwest",
-  //     "Old Town",
-  //     "Safe Town",
-  //     "Southwest",
-  //     "Downtown",
-  //     "Wilson Forest",
-  //     "Scenic Vista",
-  //     "Broadview",
-  //     "Chapparal",
-  //     "Terrapin Springs",
-  //     "Pepper Mill",
-  //     "Cheddarford",
-  //     "Easton",
-  //     "Weston",
-  //     "Southton",
-  //     "Oak Willow",
-  //     "East Parton",
-  //     "West Parton",
-  //   ];
+    const aggregated = [];
 
-  //   const data = locations.map((name, id) => ({
-  //     location: name,
-  //     data: processedData.get(id + 1),
-  //   }));
+    const fields = [
+      { key: "sewer_and_water", label: "Sewer and Water" },
+      { key: "power", label: "Power" },
+      { key: "roads_and_bridges", label: "Roads and Bridges" },
+      { key: "medical", label: "Medical" },
+      { key: "buildings", label: "Building" },
+      { key: "shake_intensity", label: "Shake Intensity" },
+    ];
 
-  //   const plot = Plot.plot({
-  //     width: 500,
-  //     height: 400,
-  //     marginLeft: 120,
-  //     color,
-  //     x: {
-  //       label: `Aggregate (mean) Reported ${infrastructure[selectedInfrastructure as InfrastructureKey]} damage`,
-  //       domain: [0, 10],
-  //     },
-  //     y: {
-  //       label: "Neighbourhood",
-  //     },
-  //     marks: [
-  //       Plot.barX(data, {
-  //         x: (d) => d.data?.damage,
-  //         y: "location",
-  //         sort: { y: "-x" },
-  //         fill: (d) => bivariateClass(d.data),
-  //         title: (d) => {
-  //           const name = d.location;
-  //           const value = d.data;
+    const data = d3.group(rawData, (d) => d.time);
+    for (const [time, records] of data) {
+      for (const { key, label } of fields) {
+        const values = records
+          .map((d) => d[key as keyof ReportRow])
+          .filter((v) => !isNaN(v));
+        const mean = d3.mean(values) ?? NaN;
+        const stdev = d3.deviation(values) ?? 0;
 
-  //           if (!value || (isNaN(value.damage) && isNaN(value.count)))
-  //             return `${name}\nno data`;
+        aggregated.push({
+          time,
+          damage: mean,
+          stdev,
+          // lower: mean - stdev,
+          // upper: mean + stdev,
+          industry: label,
+        });
+      }
+      // aggregated.push(
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+      //     stdev:
+      //       d3.deviation(records.filter((d) => !isNaN(d.sewer_and_water))) ?? 0,
+      //     industry: "Sewer and Water",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.power) ?? NaN,
+      //     industry: "Power",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+      //     industry: "Roads and Bridges",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.medical) ?? NaN,
+      //     industry: "Medical",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.buildings) ?? NaN,
+      //     industry: "Building",
+      //   },
+      //   {
+      //     time,
+      //     damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+      //     industry: "Shake Intensity",
+      //   }
+      // );
+    }
 
-  //           const [reports, damage] = bivariateClass(value);
-  //           return (
-  //             `${name}\n` +
-  //             `${infrastructure[selectedInfrastructure]} Damage: ${
-  //               isNaN(value.damage) ? "No Data" : value.damage.toFixed(1)
-  //             }/10 ${damage != null ? labels[damage] : " unknown"}\n` +
-  //             `# of Reports: ${
-  //               isNaN(value.count) ? "No Data" : value.count
-  //             } ${reports != null ? labels[reports] : " (unknown)"}\n` +
-  //             `Shake Intensity: ${value.shake_intensity.toFixed(1)}/10`
-  //           );
-  //         },
-  //         tip: true,
-  //       }),
-  //       Plot.text(data, {
-  //         x: (d) => d.data?.damage,
-  //         y: "location",
-  //         text: (d) => d.data?.damage.toFixed(1),
-  //         dx: 4,
-  //         dy: 0.5,
-  //         textAnchor: "start",
-  //         stroke: "white",
-  //         fill: "black",
-  //         fontSize: 12,
-  //       }),
-  //     ],
-  //   });
+    // for (let i = 0; i < rawDataBuckets.length; i++) {
+    //   const records = rawDataBuckets[i];
+    //   const time = new Date(
+    //     new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
+    //   );
+    //   aggregated.push(
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
+    //       industry: "sewer_and_water",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.power) ?? NaN,
+    //       industry: "power",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
+    //       industry: "roads_and_bridges",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.medical) ?? NaN,
+    //       industry: "medical",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.buildings) ?? NaN,
+    //       industry: "buildings",
+    //     },
+    //     {
+    //       time,
+    //       damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
+    //       industry: "shake_intensity",
+    //     }
+    //   );
+    // }
 
-  //   container.innerHTML = "";
-  //   container.appendChild(plot);
-  // }
+    const plot = Plot.plot({
+      width: 1200,
+      marginLeft: 100,
+      marginBottom: 200,
+      x: {
+        type: "utc",
+        axis: "top",
+      },
+      y: {
+        axis: "right",
+        // ticks: [2, 4, 6, 8, 10],
+      },
+      fy: {
+        padding: 0.2,
+      },
+      label: null,
+      marks: [
+        Plot.areaY(aggregated, {
+          x: "time",
+          y1: (d) => d.damage - d.stdev,
+          y2: (d) => d.damage + d.stdev,
+          fy: "industry",
+          fill: "#f00",
+          fillOpacity: 0.2,
+        }),
+        Plot.lineY(aggregated, {
+          x: "time",
+          y: "damage",
+          fy: "industry",
+          tip: true,
+          title: (d) =>
+            `${d.industry}\n` +
+            `${d3.utcFormat("%Y-%m-%d %H:%M")(new Date(d.time.getTime() + 60 * 60 * 1000))}\n` +
+            `Damage: ${d.damage.toFixed(1)} ±${d.stdev.toFixed(1)}`,
+        }),
+        Plot.frame(),
+        Plot.crosshairX(aggregated, {
+          x: "time",
+          // color: "red",
+        }),
+      ],
+    });
+
+    container.innerHTML = "";
+    container.appendChild(plot);
+  }
 
   // Infrasturcture select
   const infraSelect = document.getElementById(
