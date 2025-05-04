@@ -250,7 +250,7 @@
     for (const [time, records] of data) {
       for (const { key, label } of fields) {
         const values = records
-          .map((d) => d[key as keyof ReportRow])
+          .map((d) => d[key as Exclude<keyof ReportRow, "time" | "location">])
           .filter((v) => !isNaN(v));
         const mean = d3.mean(values) ?? NaN;
         const stdev = d3.deviation(values) ?? 0;
@@ -259,85 +259,10 @@
           time,
           damage: mean,
           stdev,
-          // lower: mean - stdev,
-          // upper: mean + stdev,
           industry: label,
         });
       }
-      // aggregated.push(
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
-      //     stdev:
-      //       d3.deviation(records.filter((d) => !isNaN(d.sewer_and_water))) ?? 0,
-      //     industry: "Sewer and Water",
-      //   },
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.power) ?? NaN,
-      //     industry: "Power",
-      //   },
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
-      //     industry: "Roads and Bridges",
-      //   },
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.medical) ?? NaN,
-      //     industry: "Medical",
-      //   },
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.buildings) ?? NaN,
-      //     industry: "Building",
-      //   },
-      //   {
-      //     time,
-      //     damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
-      //     industry: "Shake Intensity",
-      //   }
-      // );
     }
-
-    // for (let i = 0; i < rawDataBuckets.length; i++) {
-    //   const records = rawDataBuckets[i];
-    //   const time = new Date(
-    //     new Date("2020-04-6 00:00:00").getTime() + i * 60 * 60 * 1000
-    //   );
-    //   aggregated.push(
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.sewer_and_water) ?? NaN,
-    //       industry: "sewer_and_water",
-    //     },
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.power) ?? NaN,
-    //       industry: "power",
-    //     },
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.roads_and_bridges) ?? NaN,
-    //       industry: "roads_and_bridges",
-    //     },
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.medical) ?? NaN,
-    //       industry: "medical",
-    //     },
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.buildings) ?? NaN,
-    //       industry: "buildings",
-    //     },
-    //     {
-    //       time,
-    //       damage: d3.mean(records, (d) => d.shake_intensity) ?? NaN,
-    //       industry: "shake_intensity",
-    //     }
-    //   );
-    // }
 
     const plot = Plot.plot({
       width: 1200,
@@ -349,7 +274,7 @@
       },
       y: {
         axis: "right",
-        // ticks: [2, 4, 6, 8, 10],
+        ticks: [2, 4, 6, 8, 10],
       },
       fy: {
         padding: 0.2,
@@ -377,7 +302,8 @@
         Plot.frame(),
         Plot.crosshairX(aggregated, {
           x: "time",
-          // color: "red",
+          textFill: "white",
+          opacity: 1,
         }),
       ],
     });
