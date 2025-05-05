@@ -29,4 +29,4 @@ df <- df %>%
 str(df)
 
 # Save cleaned data to CSV
-write.csv(d, "q2-data.csv", row.names = FALSE)
+write.csv(df, "q2-data.csv", row.names = FALSE)
