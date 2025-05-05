@@ -96,7 +96,7 @@
   // Runs once on load
   async function init() {
     // Fetch CSV
-    rawData = await d3.csv("reports.csv", (d) => ({
+    rawData = await d3.csv("cleaned-data.csv", (d) => ({
       ...d,
       location: +d.location,
       time: new Date(d.time),

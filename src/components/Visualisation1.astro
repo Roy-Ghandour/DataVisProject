@@ -112,7 +112,7 @@
     geoData = await fetch("StHitmark.geojson").then((res) => res.json());
 
     // Fetch CSV
-    rawData = await d3.csv("reports.csv", (d) => ({
+    rawData = await d3.csv("cleaned-data.csv", (d) => ({
       ...d,
       location: +d.location,
       time: new Date(d.time),
