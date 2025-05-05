@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>St. Himark Earthquake Visualization</title>
+  </head>
+  <body>
+    <div class="container">
+      <h1>St. Himark Earthquake Visualization</h1>
+
+      <!-- Top row with radar chart and heat map side by side -->
+      <div class="top-row">
+        <div class="chart-container" id="map-container">
+          <h2>Reliability Chloropleth Map</h2>
+          <div id="reliability-map"></div>
+        </div>
+      </div>
+
+      <!-- Small multiples radar chart -->
+      <div class="chart-container" id="small-multiples-container">
+        <h2>Neighbourhood Reliability Comparison</h2>
+        <div id="small-multiples-radar"></div>
+      </div>
+    </div>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+    <script src="scripts/locationNames.js"></script>
+    <script src="scripts/processData.js"></script>
+    <script src="scripts/smallMultiplesRadar.js"></script>
+    <script src="scripts/script.js"></script>
+    <script src="scripts/map.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const map = new StHimarkMap("#reliability-map");
+        const smallMultiplesRadar = new SmallMultiplesRadar(
+          "#small-multiples-radar",
+          []
+        );
+      });
+    </script>
+  </body>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      color: #444;
+      margin-bottom: 20px;
+    }
+
+    /* Chart containers */
+    .chart-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      margin-bottom: 40px;
+    }
+
+    /* Layout structure */
+    .top-row {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 40px;
+    }
+
+    #radar-chart-container {
+      flex: 1;
+      min-width: 600px;
+    }
+
+    #map-container {
+      flex: 1;
+      min-width: 600px;
+    }
+
+    #small-multiples-container {
+      width: 100%;
+      min-height: 1000px;
+      margin-bottom: 40px;
+    }
+
+    #temporal-container {
+      width: 100%;
+      height: 500px;
+    }
+
+    #boxplot-container {
+      width: 100%;
+      max-width: 100%;
+      min-height: 700px;
+      margin-bottom: 40px;
+    }
+
+    #boxplot {
+      overflow-x: auto;
+      min-height: 600px;
+      max-width: 100%;
+    }
+
+    /* Form controls */
+    .controls {
+      margin-bottom: 20px;
+    }
+
+    select {
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+    }
+
+    /* Tooltips */
+    .tooltip {
+      position: absolute;
+      background: white;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    /* Hide shakemaps */
+    .shakemap-container {
+      display: none;
+    }
+  </style>
+</html>
